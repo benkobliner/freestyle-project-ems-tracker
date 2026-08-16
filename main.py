@@ -9,7 +9,7 @@ API_URL = "https://data.cityofnewyork.us/resource/76xm-jjuj.json"
 
 def query_api(params):
     """Send a query to NYC Open Data and return the results as a DataFrame."""
-    response = requests.get(API_URL, params=params, timeout=60)
+    response = requests.get(API_URL, params=params, timeout=120)
     response.raise_for_status()
     return pd.DataFrame(response.json())
 
@@ -30,7 +30,17 @@ def borough_filter(borough):
     if borough == "All NYC":
         return ""
 
-    return f" AND borough='{borough.upper()}'"
+    borough_map = {
+        "Manhattan": "MANHATTAN",
+        "Bronx": "BRONX",
+        "Brooklyn": "BROOKLYN",
+        "Queens": "QUEENS",
+        "Staten Island": "RICHMOND / STATEN ISLAND",
+    }
+
+    api_borough = borough_map.get(borough, borough.upper())
+
+    return f" AND borough='{api_borough}'"
 
 
 def get_call_type_counts(year, call_type, borough="All NYC"):
@@ -58,6 +68,7 @@ def get_call_type_counts(year, call_type, borough="All NYC"):
         return df
 
     df["call_count"] = pd.to_numeric(df["call_count"])
+
     return df
 
 
@@ -68,7 +79,7 @@ def get_response_times(
     minimum_calls=50,
 ):
     """
-    Return average valid EMS response time by ZIP code.
+    Return average valid EMS incident response time by ZIP code.
 
     If high_severity_only is True, only final severity levels 1-3
     are included.
@@ -108,7 +119,10 @@ def get_response_times(
     df["avg_response_seconds"] = pd.to_numeric(
         df["avg_response_seconds"]
     )
-    df["call_count"] = pd.to_numeric(df["call_count"])
+
+    df["call_count"] = pd.to_numeric(
+        df["call_count"]
+    )
 
     df["avg_response_minutes"] = (
         df["avg_response_seconds"] / 60
@@ -117,24 +131,18 @@ def get_response_times(
     return df
 
 
-def classify_day_night(hour):
+def get_held_incident_rates(
+    year,
+    borough="All NYC",
+    high_severity_only=False,
+    minimum_calls=50,
+):
     """
-    Classify an hour as Day or Night.
+    Return total incidents, held incidents, and held percentage by ZIP code.
 
-    Day is defined as 08:00 through 19:59.
-    Night is defined as 20:00 through 07:59.
-    """
-    hour = int(hour)
-
-    if 8 <= hour < 20:
-        return "Day"
-
-    return "Night"
-
-
-def get_day_night_counts(year, borough="All NYC"):
-    """
-    Return EMS incident counts by ZIP code for daytime and nighttime.
+    The FDNY dataset exposes HELD_INDICATOR as a Y/N field.
+    This function reports the field descriptively without assigning
+    a specific operational cause to the held status.
     """
     where = (
         f"{year_filter(year)} "
@@ -142,16 +150,21 @@ def get_day_night_counts(year, borough="All NYC"):
         f"{borough_filter(borough)}"
     )
 
+    if high_severity_only:
+        where += (
+            " AND final_severity_level_code "
+            "IN ('1','2','3')"
+        )
+
     params = {
         "$select": (
             "zipcode, "
-            "date_extract_hh(incident_datetime) AS hour, "
-            "count(*) AS call_count"
+            "count(*) AS total_calls, "
+            "sum(case(held_indicator='Y', 1, 0)) AS held_calls"
         ),
         "$where": where,
-        "$group": (
-            "zipcode, date_extract_hh(incident_datetime)"
-        ),
+        "$group": "zipcode",
+        "$having": f"count(*) >= {minimum_calls}",
         "$limit": 5000,
     }
 
@@ -160,17 +173,24 @@ def get_day_night_counts(year, borough="All NYC"):
     if df.empty:
         return df
 
-    df["hour"] = pd.to_numeric(df["hour"])
-    df["call_count"] = pd.to_numeric(df["call_count"])
-
-    df["period"] = df["hour"].apply(classify_day_night)
-
-    summary = (
-        df.groupby(["zipcode", "period"], as_index=False)["call_count"]
-        .sum()
+    df["total_calls"] = pd.to_numeric(
+        df["total_calls"]
     )
 
-    return summary
+    df["held_calls"] = pd.to_numeric(
+        df["held_calls"]
+    )
+
+    df["held_percentage"] = (
+        df["held_calls"] / df["total_calls"] * 100
+    ).round(2)
+
+    df = df.sort_values(
+        "held_percentage",
+        ascending=False,
+    )
+
+    return df
 
 
 if __name__ == "__main__":
