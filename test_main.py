@@ -1,36 +1,48 @@
-"""Tests for the EMS map project."""
+"""Tests for FDNY EMS Data Explorer analysis functions."""
 
-import pandas as pd
-
-from main import load_data, make_map
-
-
-def test_load_data_keeps_manhattan(tmp_path):
-    file = tmp_path / "calls.csv"
-    pd.DataFrame({
-        "borough": ["MANHATTAN", "BROOKLYN"],
-        "latitude": [40.75, 40.65],
-        "longitude": [-73.99, -73.95],
-    }).to_csv(file, index=False)
-
-    assert len(load_data(file)) == 1
+from main import (
+    year_filter,
+    borough_filter,
+    classify_day_night,
+)
 
 
-def test_load_data_returns_manhattan(tmp_path):
-    file = tmp_path / "calls.csv"
-    pd.DataFrame({
-        "borough": ["MANHATTAN", "BROOKLYN"],
-        "latitude": [40.75, 40.65],
-        "longitude": [-73.99, -73.95],
-    }).to_csv(file, index=False)
+def test_year_filter():
+    result = year_filter(2025)
 
-    assert load_data(file).iloc[0]["borough"] == "MANHATTAN"
+    assert (
+        "incident_datetime >= "
+        "'2025-01-01T00:00:00.000'"
+        in result
+    )
+
+    assert (
+        "incident_datetime < "
+        "'2026-01-01T00:00:00.000'"
+        in result
+    )
 
 
-def test_make_map_creates_file(tmp_path):
-    df = pd.DataFrame({"latitude": [40.75], "longitude": [-73.99]})
-    output = tmp_path / "map.html"
+def test_all_nyc_borough_filter():
+    result = borough_filter("All NYC")
 
-    make_map(df, output)
+    assert result == ""
 
-    assert output.exists()
+
+def test_manhattan_borough_filter():
+    result = borough_filter("Manhattan")
+
+    assert result == " AND borough='MANHATTAN'"
+
+
+def test_day_classification():
+    assert classify_day_night(8) == "Day"
+    assert classify_day_night(12) == "Day"
+    assert classify_day_night(19) == "Day"
+
+
+def test_night_classification():
+    assert classify_day_night(20) == "Night"
+    assert classify_day_night(23) == "Night"
+    assert classify_day_night(0) == "Night"
+    assert classify_day_night(7) == "Night"
