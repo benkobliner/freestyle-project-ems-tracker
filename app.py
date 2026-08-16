@@ -4,7 +4,7 @@ import streamlit as st
 
 from main import (
     get_call_type_counts,
-    get_response_times,
+    get_response_times_by_borough,
     get_held_incident_rates,
 )
 
@@ -34,30 +34,29 @@ year = st.sidebar.number_input(
 )
 
 
-borough = st.sidebar.selectbox(
-    "Geographic Area",
-    [
-        "All NYC",
-        "Manhattan",
-        "Bronx",
-        "Brooklyn",
-        "Queens",
-        "Staten Island",
-    ],
-)
-
-
 scenario = st.sidebar.radio(
     "Analysis",
     [
         "Call Type by ZIP Code",
-        "Response Time by ZIP Code",
+        "Response Time by Borough",
         "Held Incidents by ZIP Code",
     ],
 )
 
 
 if scenario == "Call Type by ZIP Code":
+
+    borough = st.sidebar.selectbox(
+        "Geographic Area",
+        [
+            "All NYC",
+            "Manhattan",
+            "Bronx",
+            "Brooklyn",
+            "Queens",
+            "Staten Island",
+        ],
+    )
 
     st.header("EMS Call Type by ZIP Code")
 
@@ -125,15 +124,16 @@ if scenario == "Call Type by ZIP Code":
             )
 
 
-elif scenario == "Response Time by ZIP Code":
+elif scenario == "Response Time by Borough":
 
-    st.header("EMS Response Time by ZIP Code")
+    st.header("EMS Response Time by Borough")
 
     st.write(
         """
-        Compare average EMS incident response times among ZIP
-        codes using records FDNY identifies as having valid
-        incident-response-time measurements.
+        Compare average EMS incident response times across
+        New York City's five boroughs using records that FDNY
+        identifies as having valid incident-response-time
+        measurements.
         """
     )
 
@@ -145,14 +145,6 @@ elif scenario == "Response Time by ZIP Code":
         ],
     )
 
-    minimum_calls = st.number_input(
-        "Minimum qualifying calls per ZIP code",
-        min_value=1,
-        max_value=1000,
-        value=50,
-        step=10,
-    )
-
     if st.button("Run Response Time Analysis"):
 
         high_severity_only = (
@@ -162,35 +154,33 @@ elif scenario == "Response Time by ZIP Code":
 
         with st.spinner("Querying NYC Open Data..."):
 
-            df = get_response_times(
+            df = get_response_times_by_borough(
                 year=int(year),
-                borough=borough,
                 high_severity_only=high_severity_only,
-                minimum_calls=int(minimum_calls),
             )
 
         if df.empty:
 
             st.warning(
-                "No qualifying ZIP codes were returned."
+                "No qualifying incidents were returned."
             )
 
         else:
 
             st.subheader(
-                "ZIP codes with longest average response times"
+                "Average response time by borough"
             )
 
             display_df = df[
                 [
-                    "zipcode",
+                    "borough",
                     "avg_response_minutes",
                     "call_count",
                 ]
             ].copy()
 
             display_df.columns = [
-                "ZIP Code",
+                "Borough",
                 "Average Response Time (minutes)",
                 "Qualifying Calls",
             ]
@@ -202,16 +192,28 @@ elif scenario == "Response Time by ZIP Code":
             )
 
             chart_df = (
-                display_df.head(15)
-                .set_index("ZIP Code")
+                display_df
+                .set_index("Borough")
             )
 
             st.subheader(
-                "15 longest average response times"
+                "Average EMS response time"
             )
 
             st.bar_chart(
-                chart_df["Average Response Time (minutes)"]
+                chart_df[
+                    "Average Response Time (minutes)"
+                ]
+            )
+
+            slowest = display_df.iloc[0]
+
+            st.metric(
+                "Longest Average Response Time",
+                (
+                    f"{slowest['Borough']}: "
+                    f"{slowest['Average Response Time (minutes)']:.2f} min"
+                ),
             )
 
             st.caption(
@@ -226,18 +228,34 @@ elif scenario == "Response Time by ZIP Code":
 
 elif scenario == "Held Incidents by ZIP Code":
 
+    borough = st.sidebar.selectbox(
+        "Geographic Area",
+        [
+            "All NYC",
+            "Manhattan",
+            "Bronx",
+            "Brooklyn",
+            "Queens",
+            "Staten Island",
+        ],
+    )
+
     st.header("Held EMS Incidents by ZIP Code")
 
     st.write(
         """
         Compare the percentage of EMS incidents marked as held
         in the FDNY EMS Incident Dispatch Data.
+        """
+    )
 
-        The public NYC Open Data metadata identifies HELD_INDICATOR
-        as a Y/N field but does not provide a detailed operational
-        definition. This dashboard therefore reports the field
-        descriptively rather than assigning a specific cause to
-        held status.
+    st.write(
+        """
+        The public NYC Open Data metadata identifies
+        HELD_INDICATOR as a Y/N field but does not provide a
+        detailed operational definition. This dashboard therefore
+        reports the field descriptively rather than assigning a
+        specific cause to held status.
         """
     )
 
