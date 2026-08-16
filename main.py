@@ -9,8 +9,13 @@ API_URL = "https://data.cityofnewyork.us/resource/76xm-jjuj.json"
 
 def query_api(params):
     """Send a query to NYC Open Data and return the results as a DataFrame."""
-    response = requests.get(API_URL, params=params, timeout=120)
+    response = requests.get(
+        API_URL,
+        params=params,
+        timeout=120,
+    )
     response.raise_for_status()
+
     return pd.DataFrame(response.json())
 
 
@@ -38,19 +43,43 @@ def borough_filter(borough):
         "Staten Island": "RICHMOND / STATEN ISLAND",
     }
 
-    api_borough = borough_map.get(borough, borough.upper())
+    api_borough = borough_map.get(
+        borough,
+        borough.upper(),
+    )
 
     return f" AND borough='{api_borough}'"
 
 
-def get_call_type_counts(year, call_type, borough="All NYC"):
+def clean_borough_name(borough):
+    """Convert FDNY borough labels into presentation-friendly names."""
+    borough_names = {
+        "MANHATTAN": "Manhattan",
+        "BRONX": "Bronx",
+        "BROOKLYN": "Brooklyn",
+        "QUEENS": "Queens",
+        "RICHMOND / STATEN ISLAND": "Staten Island",
+        "RICHMOND": "Staten Island",
+    }
+
+    return borough_names.get(
+        borough,
+        borough.title(),
+    )
+
+
+def get_call_type_counts(
+    year,
+    call_type,
+    borough="All NYC",
+):
     """
     Return EMS incident counts by ZIP code for a selected final call type.
     """
     where = (
         f"{year_filter(year)} "
         f"AND final_call_type='{call_type.upper()}' "
-        f"AND zipcode IS NOT NULL"
+        "AND zipcode IS NOT NULL"
         f"{borough_filter(borough)}"
     )
 
@@ -67,29 +96,28 @@ def get_call_type_counts(year, call_type, borough="All NYC"):
     if df.empty:
         return df
 
-    df["call_count"] = pd.to_numeric(df["call_count"])
+    df["call_count"] = pd.to_numeric(
+        df["call_count"]
+    )
 
     return df
 
 
-def get_response_times(
+def get_response_times_by_borough(
     year,
-    borough="All NYC",
     high_severity_only=False,
-    minimum_calls=50,
 ):
     """
-    Return average valid EMS incident response time by ZIP code.
+    Return average valid EMS incident response time by borough.
 
     If high_severity_only is True, only final severity levels 1-3
     are included.
     """
     where = (
         f"{year_filter(year)} "
-        "AND zipcode IS NOT NULL "
+        "AND borough IS NOT NULL "
         "AND incident_response_seconds_qy IS NOT NULL "
         "AND valid_incident_rspns_time_indc='Y'"
-        f"{borough_filter(borough)}"
     )
 
     if high_severity_only:
@@ -100,15 +128,15 @@ def get_response_times(
 
     params = {
         "$select": (
-            "zipcode, "
-            "avg(incident_response_seconds_qy) AS avg_response_seconds, "
+            "borough, "
+            "avg(incident_response_seconds_qy) "
+            "AS avg_response_seconds, "
             "count(*) AS call_count"
         ),
         "$where": where,
-        "$group": "zipcode",
-        "$having": f"count(*) >= {minimum_calls}",
+        "$group": "borough",
         "$order": "avg_response_seconds DESC",
-        "$limit": 5000,
+        "$limit": 100,
     }
 
     df = query_api(params)
@@ -128,6 +156,10 @@ def get_response_times(
         df["avg_response_seconds"] / 60
     ).round(2)
 
+    df["borough"] = df["borough"].apply(
+        clean_borough_name
+    )
+
     return df
 
 
@@ -135,62 +167,102 @@ def get_held_incident_rates(
     year,
     borough="All NYC",
     high_severity_only=False,
-    minimum_calls=50,
+    minimum_calls=100,
 ):
     """
-    Return total incidents, held incidents, and held percentage by ZIP code.
+    Return total incidents, held incidents, and held percentage by ZIP.
 
-    The FDNY dataset exposes HELD_INDICATOR as a Y/N field.
-    This function reports the field descriptively without assigning
-    a specific operational cause to the held status.
+    HELD_INDICATOR is reported descriptively because the public
+    dataset does not provide a detailed operational definition
+    of what causes an incident to be marked held.
     """
-    where = (
+
+    base_where = (
         f"{year_filter(year)} "
         "AND zipcode IS NOT NULL"
         f"{borough_filter(borough)}"
     )
 
     if high_severity_only:
-        where += (
+        base_where += (
             " AND final_severity_level_code "
             "IN ('1','2','3')"
         )
 
-    params = {
-        "$select": (
-            "zipcode, "
-            "count(*) AS total_calls, "
-            "sum(case(held_indicator='Y', 1, 0)) AS held_calls"
-        ),
-        "$where": where,
+    # Query 1: total qualifying EMS incidents by ZIP
+    total_params = {
+        "$select": "zipcode, count(*) AS total_calls",
+        "$where": base_where,
         "$group": "zipcode",
-        "$having": f"count(*) >= {minimum_calls}",
         "$limit": 5000,
     }
 
-    df = query_api(params)
+    total_df = query_api(total_params)
 
-    if df.empty:
-        return df
+    if total_df.empty:
+        return total_df
 
-    df["total_calls"] = pd.to_numeric(
-        df["total_calls"]
+    # Query 2: incidents marked held by ZIP
+    held_where = (
+        base_where
+        + " AND held_indicator='Y'"
     )
 
-    df["held_calls"] = pd.to_numeric(
-        df["held_calls"]
+    held_params = {
+        "$select": "zipcode, count(*) AS held_calls",
+        "$where": held_where,
+        "$group": "zipcode",
+        "$limit": 5000,
+    }
+
+    held_df = query_api(held_params)
+
+    total_df["total_calls"] = pd.to_numeric(
+        total_df["total_calls"]
     )
 
-    df["held_percentage"] = (
-        df["held_calls"] / df["total_calls"] * 100
+    if held_df.empty:
+        total_df["held_calls"] = 0
+        result = total_df
+
+    else:
+        held_df["held_calls"] = pd.to_numeric(
+            held_df["held_calls"]
+        )
+
+        result = total_df.merge(
+            held_df,
+            on="zipcode",
+            how="left",
+        )
+
+        result["held_calls"] = (
+            result["held_calls"]
+            .fillna(0)
+            .astype(int)
+        )
+
+    # Exclude ZIP codes with too few qualifying calls
+    result = result[
+        result["total_calls"] >= minimum_calls
+    ].copy()
+
+    if result.empty:
+        return result
+
+    # Calculate percentage locally in Pandas
+    result["held_percentage"] = (
+        result["held_calls"]
+        / result["total_calls"]
+        * 100
     ).round(2)
 
-    df = df.sort_values(
+    result = result.sort_values(
         "held_percentage",
         ascending=False,
     )
 
-    return df
+    return result
 
 
 if __name__ == "__main__":
