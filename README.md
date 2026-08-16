@@ -1,43 +1,24 @@
-# Manhattan EMS Map
+# FDNY EMS Data Explorer
 
-This project creates a simple map of EMS calls in Manhattan.
+This project uses live FDNY EMS incident data from NYC Open Data to explore patterns in emergency medical demand.
+
+The data comes from the FDNY EMS Incident Dispatch Data dataset:
+
+https://data.cityofnewyork.us/resource/76xm-jjuj.json
+
+## Current Implementation
+
+The current version retrieves a sample of Manhattan EMS incidents directly from the NYC Open Data API and loads the results into a pandas DataFrame.
+
+Future versions will support analysis of:
+
+- EMS call type and geographic patterns
+- EMS response times and severity levels
+- Daytime versus nighttime EMS demand
 
 ## Setup
 
-Create and activate an Anaconda environment:
+Install the required packages:
 
 ```bash
-conda create -n ems-map python=3.11
-conda activate ems-map
-```
-
-Install the packages:
-
-```bash
-pip install -r requirements.txt
-```
-
-No API keys or environment variables are required.
-
-## Run
-
-```bash
-python main.py
-```
-
-This reads `sample_ems_calls.csv`, keeps Manhattan rows, and creates `ems_map.html`.
-Open `ems_map.html` in a browser to see the map.
-
-To use another dataset, replace `sample_ems_calls.csv` with a CSV containing these columns:
-
-- `borough`
-- `latitude`
-- `longitude`
-
-## Test
-
-```bash
-pytest
-```
-
-GitHub Actions also runs the tests automatically whenever code is pushed to GitHub.
+python3 -m pip install -r requirements.txt
