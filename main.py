@@ -1,27 +1,32 @@
-"""Create a simple map of Manhattan EMS calls."""
+"""Retrieve live FDNY EMS incident data from NYC Open Data."""
 
-import folium
+import requests
 import pandas as pd
 
 
-def load_data(filename):
-    """Read EMS data and keep only Manhattan calls."""
-    df = pd.read_csv(filename)
-    return df[df["borough"].str.upper() == "MANHATTAN"]
+API_URL = "https://data.cityofnewyork.us/resource/76xm-jjuj.json"
 
 
-def make_map(df, output="ems_map.html"):
-    """Create and save a map from latitude and longitude columns."""
-    ems_map = folium.Map(location=[40.78, -73.97], zoom_start=12)
+def load_data(limit=100):
+    """Retrieve a sample of Manhattan EMS incidents from NYC Open Data."""
+    params = {
+        "$limit": limit,
+        "$where": "borough='MANHATTAN'",
+    }
 
-    for _, row in df.iterrows():
-        folium.Marker([row["latitude"], row["longitude"]]).add_to(ems_map)
+    response = requests.get(API_URL, params=params, timeout=30)
+    response.raise_for_status()
 
-    ems_map.save(output)
-    return output
+    return pd.DataFrame(response.json())
 
 
 if __name__ == "__main__":
-    data = load_data("sample_ems_calls.csv")
-    make_map(data)
-    print("Map created: ems_map.html")
+    data = load_data()
+
+    print(f"Retrieved {len(data)} EMS incidents.")
+    print()
+    print("Columns returned by NYC Open Data:")
+    print(data.columns.tolist())
+    print()
+    print("First five rows:")
+    print(data.head())
