@@ -1,12 +1,11 @@
 """Streamlit dashboard for exploring FDNY EMS incident data."""
 
-import pandas as pd
 import streamlit as st
 
 from main import (
     get_call_type_counts,
     get_response_times,
-    get_day_night_counts,
+    get_held_incident_rates,
 )
 
 
@@ -53,7 +52,7 @@ scenario = st.sidebar.radio(
     [
         "Call Type by ZIP Code",
         "Response Time by ZIP Code",
-        "Day vs. Night Demand",
+        "Held Incidents by ZIP Code",
     ],
 )
 
@@ -65,7 +64,7 @@ if scenario == "Call Type by ZIP Code":
     st.write(
         """
         Identify which ZIP codes generated the greatest number
-        of incidents for a selected FDNY EMS call type.
+        of incidents for a selected FDNY EMS final call type.
         """
     )
 
@@ -225,82 +224,115 @@ elif scenario == "Response Time by ZIP Code":
             )
 
 
-elif scenario == "Day vs. Night Demand":
+elif scenario == "Held Incidents by ZIP Code":
 
-    st.header("Day vs. Night EMS Demand")
+    st.header("Held EMS Incidents by ZIP Code")
 
     st.write(
         """
-        Compare EMS incident volume by ZIP code during daytime
-        and nighttime hours.
+        Compare the percentage of EMS incidents marked as held
+        in the FDNY EMS Incident Dispatch Data.
 
-        Day: 08:00-19:59
-
-        Night: 20:00-07:59
+        The public NYC Open Data metadata identifies HELD_INDICATOR
+        as a Y/N field but does not provide a detailed operational
+        definition. This dashboard therefore reports the field
+        descriptively rather than assigning a specific cause to
+        held status.
         """
     )
 
-    if st.button("Run Day vs. Night Analysis"):
+    severity_option = st.radio(
+        "Severity filter",
+        [
+            "All severity levels",
+            "Severity levels 1-3 only",
+        ],
+        key="held_severity",
+    )
+
+    minimum_calls = st.number_input(
+        "Minimum qualifying calls per ZIP code",
+        min_value=1,
+        max_value=5000,
+        value=100,
+        step=50,
+        key="held_minimum",
+    )
+
+    if st.button("Run Held Incident Analysis"):
+
+        high_severity_only = (
+            severity_option
+            == "Severity levels 1-3 only"
+        )
 
         with st.spinner("Querying NYC Open Data..."):
 
-            df = get_day_night_counts(
+            df = get_held_incident_rates(
                 year=int(year),
                 borough=borough,
+                high_severity_only=high_severity_only,
+                minimum_calls=int(minimum_calls),
             )
 
         if df.empty:
 
             st.warning(
-                "No matching incidents were returned."
+                "No qualifying ZIP codes were returned."
             )
 
         else:
 
-            pivot = df.pivot_table(
-                index="zipcode",
-                columns="period",
-                values="call_count",
-                aggfunc="sum",
-                fill_value=0,
+            total_calls = int(
+                df["total_calls"].sum()
             )
 
-            if "Day" not in pivot.columns:
-                pivot["Day"] = 0
-
-            if "Night" not in pivot.columns:
-                pivot["Night"] = 0
-
-            pivot["Total"] = (
-                pivot["Day"] + pivot["Night"]
+            total_held = int(
+                df["held_calls"].sum()
             )
 
-            pivot["Night Share"] = (
-                pivot["Night"] / pivot["Total"]
+            overall_rate = (
+                total_held / total_calls * 100
+                if total_calls
+                else 0
             )
 
-            pivot = pivot.sort_values(
-                "Total",
-                ascending=False,
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "Qualifying EMS Incidents",
+                f"{total_calls:,}",
             )
 
-            display_df = pivot.reset_index()
+            col2.metric(
+                "Held Incidents",
+                f"{total_held:,}",
+            )
 
-            display_df["Night Share"] = (
-                display_df["Night Share"] * 100
-            ).round(1)
+            col3.metric(
+                "Held Percentage",
+                f"{overall_rate:.2f}%",
+            )
+
+            st.subheader(
+                "ZIP codes with highest held percentage"
+            )
+
+            display_df = df[
+                [
+                    "zipcode",
+                    "total_calls",
+                    "held_calls",
+                    "held_percentage",
+                ]
+            ].copy()
 
             display_df.columns = [
                 "ZIP Code",
-                "Day Calls",
-                "Night Calls",
                 "Total Calls",
-                "Night Share (%)",
+                "Held Calls",
+                "Held Percentage",
             ]
-
-            st.subheader(
-                "Day and night EMS demand by ZIP code"
-            )
 
             st.dataframe(
                 display_df,
@@ -314,33 +346,19 @@ elif scenario == "Day vs. Night Demand":
             )
 
             st.subheader(
-                "Day vs. night volume: 15 busiest ZIP codes"
+                "Top 15 ZIP codes by held percentage"
             )
 
             st.bar_chart(
-                chart_df[
-                    [
-                        "Day Calls",
-                        "Night Calls",
-                    ]
-                ]
+                chart_df["Held Percentage"]
             )
 
-            st.subheader(
-                "ZIP codes with greatest nighttime share"
-            )
-
-            night_df = display_df[
-                display_df["Total Calls"] >= 50
-            ].sort_values(
-                "Night Share (%)",
-                ascending=False,
-            )
-
-            st.dataframe(
-                night_df.head(15),
-                hide_index=True,
-                use_container_width=True,
+            st.caption(
+                """
+                ZIP codes below the selected minimum call volume
+                are excluded to reduce the influence of very small
+                sample sizes.
+                """
             )
 
 
