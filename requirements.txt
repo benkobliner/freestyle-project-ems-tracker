@@ -1,4 +1,5 @@
 pandas
-folium
-pytest
 requests
+streamlit
+pytest
+folium
