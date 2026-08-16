@@ -1,3 +1,4 @@
 pandas
 folium
 pytest
+requests
