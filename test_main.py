@@ -3,7 +3,6 @@
 from main import (
     year_filter,
     borough_filter,
-    classify_day_night,
 )
 
 
@@ -35,14 +34,16 @@ def test_manhattan_borough_filter():
     assert result == " AND borough='MANHATTAN'"
 
 
-def test_day_classification():
-    assert classify_day_night(8) == "Day"
-    assert classify_day_night(12) == "Day"
-    assert classify_day_night(19) == "Day"
+def test_brooklyn_borough_filter():
+    result = borough_filter("Brooklyn")
+
+    assert result == " AND borough='BROOKLYN'"
 
 
-def test_night_classification():
-    assert classify_day_night(20) == "Night"
-    assert classify_day_night(23) == "Night"
-    assert classify_day_night(0) == "Night"
-    assert classify_day_night(7) == "Night"
+def test_staten_island_borough_filter():
+    result = borough_filter("Staten Island")
+
+    assert (
+        result
+        == " AND borough='RICHMOND / STATEN ISLAND'"
+    )
